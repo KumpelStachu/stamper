@@ -2,6 +2,7 @@
 from datetime import datetime
 import argparse
 import ffmpeg
+import sys
 import re
 
 parser = argparse.ArgumentParser(prog='tspro', description='Add timestamp overlay to video')
@@ -56,8 +57,8 @@ for filename in input_files:
     output = re.sub(r'\.(\w+)$', fr'{args.suffix}.\1', filename)
 
     stream = ffmpeg.drawtext(input, escape_text=False, x=x, y=y, # type: ignore
-                    font=args.font, fontcolor=args.color, fontsize=size,
-                    bordercolor=args.border, borderw=size//12,
-                    alpha=args.opacity/100,
-                    text=f'%{{pts:localtime:{int(creation_time.timestamp())}}}')
+                             fontfile='C:/Windows/Fonts/arial.ttf' if sys.platform == 'win32' else None,
+                             font=args.font, fontcolor=args.color, fontsize=size,
+                             bordercolor=args.border, borderw=size//12, alpha=args.opacity/100,
+                             text=f'%{{pts:localtime:{int(creation_time.timestamp())}}}')
     stream.output(output).run(overwrite_output=True, quiet=not args.verbose)
