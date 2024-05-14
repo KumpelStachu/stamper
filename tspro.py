@@ -31,7 +31,7 @@ for filename in input_files:
         continue
 
     try:
-        creation_time = datetime.fromisoformat(stream['tags']['creation_time'])
+        creation_time = datetime.strptime(stream['tags']['creation_time'], "%Y-%m-%dT%H:%M:%S.%fZ")
     except KeyError:
         print(f'Warning: no creation time for {filename}')
         creation_time = datetime.now()
