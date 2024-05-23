@@ -1,2 +1,4 @@
-ffmpeg-python==0.2.0
+ffmpeg-progress-yield==0.7.8
 future==1.0.0
+guizero==1.5.0
+tqdm==4.66.4
