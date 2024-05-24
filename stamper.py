@@ -1,5 +1,6 @@
 from ffmpeg_progress_yield import FfmpegProgress
 from datetime import datetime, timedelta
+from typing import Any
 import subprocess
 import argparse
 import json
@@ -7,12 +8,16 @@ import sys
 import re
 import os
 
+si = subprocess.STARTUPINFO()
+si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+sp_flags: dict[str, Any] = {'startupinfo':si}
+
 prefix_re = r'[a-zA-Z0-9_-]'
 nl = '\n'
 
 def probe(filename: str) -> dict:
     cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', filename]
-    return json.loads(subprocess.check_output(cmd).decode())
+    return json.loads(subprocess.check_output(cmd, **sp_flags).decode())
 
 def download_ffmpeg():
     if sys.platform == 'win32':
@@ -37,8 +42,8 @@ def download_ffmpeg():
 
 def ensure_ffmpeg():
     try:
-        subprocess.run(['ffmpeg', '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(['ffprobe', '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(['ffmpeg', '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **sp_flags)
+        subprocess.run(['ffprobe', '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **sp_flags)
     except FileNotFoundError:
         print('Error: ffmpeg not found')
         
@@ -133,7 +138,7 @@ def handle_cli(input_files: list[str], verbose=True, **kwargs):
             else:
                 ff = FfmpegProgress(cmd)
                 with tqdm(total=100, position=0, desc=file_name(filename)) as pbar: # type: ignore
-                    for progress in ff.run_command_with_progress():
+                    for progress in ff.run_command_with_progress(popen_kwargs=sp_flags):
                         pbar.update(progress - pbar.n)
 
 def handle_gui():
@@ -170,7 +175,7 @@ def handle_gui():
             if cmd := process(file, suffix_textbox.value, float(size_textbox.value), float(margin_textbox.value), horizontal_textbox.value, vertical_textbox.value, font_textbox.value, color_textbox.bg, border_textbox.bg, float(opacity_textbox.value), bool(cuda_checkbox.value), int(quality_textbox.value)):
                 try:
                     ff = FfmpegProgress(cmd)
-                    for progress in ff.run_command_with_progress():
+                    for progress in ff.run_command_with_progress(popen_kwargs=sp_flags):
                         time = datetime.now() - ff_start
                         eta = time * (0 if progress == 0 else (100 - progress) / progress)
                         progress_info.value = f"[{progress:.2f}%] {td_str(time)} (ETA {td_str(eta)})"
@@ -304,8 +309,24 @@ def handle_gui():
             ff.quit()
         app.destroy()
 
+    def center(win):
+        # Stolen from https://stackoverflow.com/a/10018670
+        win.update_idletasks()
+        width = win.winfo_width()
+        frm_width = win.winfo_rootx() - win.winfo_x()
+        win_width = width + 2 * frm_width
+        height = win.winfo_height()
+        titlebar_height = win.winfo_rooty() - win.winfo_y()
+        win_height = height + titlebar_height + frm_width
+        x = win.winfo_screenwidth() // 2 - win_width // 2
+        y = win.winfo_screenheight() // 2 - win_height // 2
+        win.geometry('{}x{}+{}+{}'.format(width, height, x, y))
+        win.deiconify()
+
     app = App(title="stamper")
     app.when_closed = when_closed
+    app.tk.resizable(False, False)
+    center(app.tk)
 
     settings_box = Box(app, width="fill", layout="grid")
 
@@ -314,8 +335,8 @@ def handle_gui():
     suffix_example = Text(settings_box, grid=[2, 0], align="left")
 
     Text(settings_box, text="Font family", grid=[0, 1], align="left")
-    font_textbox = TextBox(settings_box, width=39, text='C:/Windows/Fonts/arial.ttf' if sys.platform == 'win32' else "Arial", grid=[1, 1, 3, 1], command=update_font, align="left")
-    PushButton(settings_box, text="Select", grid=[3, 1], command=select_font, align="left", pady=0)
+    font_textbox = TextBox(settings_box, text="Arial", grid=[1, 1], command=update_font, align="left")
+    PushButton(settings_box, text="Select", grid=[2, 1], command=select_font, align="left", pady=0)
 
     Text(settings_box, text="Text color", grid=[0, 2], align="left")
     color_textbox = TextBox(settings_box, grid=[1, 2], align="left")
@@ -353,7 +374,7 @@ def handle_gui():
 
     cuda_checkbox = CheckBox(settings_box, text="Use NVIDIA GPU acceleration", grid=[0, 10, 3, 1], align="left", width="fill", command=cuda_check)
 
-    PushButton(settings_box, text="Download ffmpeg", grid=[0, 11], align="left", command=download_button)
+    PushButton(settings_box, text="Download ffmpeg (recommended for Windows)", grid=[0, 11, 3, 1], align="left", command=download_button)
 
     # TODO: add load/save settings buttons
 
@@ -378,7 +399,7 @@ def main():
     parser.add_argument('input_files', help='Input video files', nargs='*')
     parser.add_argument('-v', '--verbose', help='Verbose output', action='store_true')
     parser.add_argument('-e', '--suffix', help='Output file suffix', default='_ts')
-    parser.add_argument('-f', '--font', help='Font family', default='C:/Windows/Fonts/arial.ttf' if sys.platform == 'win32' else 'Arial')
+    parser.add_argument('-f', '--font', help='Font family', default='Arial')
     parser.add_argument('-c', '--color', help='Text color', default='white')
     parser.add_argument('-b', '--border', help='Border color', default='black')
     parser.add_argument('-s', '--size', help='Text size', default=20, type=float)
