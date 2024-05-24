@@ -373,7 +373,7 @@ def handle_gui():
 def main():
     ensure_ffmpeg()
 
-    parser = argparse.ArgumentParser(prog='tspro', description='Add timestamp overlay to video')
+    parser = argparse.ArgumentParser(prog='stamper', description='Add timestamp overlay to video')
     parser.add_argument('input_files', help='Input video files', nargs='*')
     parser.add_argument('-v', '--verbose', help='Verbose output', action='store_true')
     parser.add_argument('-e', '--suffix', help='Output file suffix', default='_ts')
@@ -385,8 +385,8 @@ def main():
     parser.add_argument('-m', '--margin', help='Overlay margin', default=10, type=float)
     parser.add_argument('-x', '--position-x', help='Horizontal position', default='left', choices=['left', 'center', 'right'])
     parser.add_argument('-y', '--position-y', help='Vertical position', default='bottom', choices=['top', 'center', 'bottom'])
-    parser.add_argument('-g', '--cuda', help='Use NVIDIA GPU acceleration', action='store_true')
     parser.add_argument('-q', '--quality', help='Quality', default=72, type=int)
+    parser.add_argument('-g', '--gpu', help='Use NVIDIA GPU acceleration', action='store_true')
 
     args = parser.parse_args()
     if args.input_files:
