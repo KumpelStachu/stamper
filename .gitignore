@@ -1,4 +1,5 @@
 .venv/
+dist/
 *.mp4
 .DS_Store
 .stats-ffmpeg
