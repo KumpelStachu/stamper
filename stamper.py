@@ -8,9 +8,12 @@ import sys
 import re
 import os
 
-si = subprocess.STARTUPINFO()
-si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-sp_flags: dict[str, Any] = {'startupinfo': si}
+if sys.platform == 'win32':
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    sp_flags: dict[str, Any] = {'startupinfo': si}
+else:
+    sp_flags = {}
 
 prefix_re = r'[a-zA-Z0-9_-]'
 nl = '\n'
