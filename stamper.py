@@ -1,16 +1,38 @@
 from ffmpeg_progress_yield import FfmpegProgress
-from datetime import datetime
+from datetime import datetime, timedelta
 import subprocess
 import argparse
 import json
 import sys
 import re
+import os
 
 prefix_re = r'[a-zA-Z0-9_-]'
 
 def probe(filename: str) -> dict:
     cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', filename]
     return json.loads(subprocess.check_output(cmd).decode())
+
+def download_ffmpeg():
+    if sys.platform == 'win32':
+        from tempfile import mkdtemp
+        import requests
+        import zipfile
+        import shutil
+        import io
+
+        url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
+        response = requests.get(url)
+        with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+            print('Extracting ffmpeg')
+            temp = mkdtemp()
+            bin = 'ffmpeg-master-latest-win64-gpl/bin'
+            z.extractall(temp, [f'{bin}/ffmpeg.exe', f'{bin}/ffprobe.exe'])
+            shutil.move(f'{temp}/{bin}/ffmpeg.exe', 'ffmpeg.exe')
+            shutil.move(f'{temp}/{bin}/ffprobe.exe', 'ffprobe.exe')
+            shutil.rmtree(temp)
+    else:
+        print('Error: unsupported platform')
 
 def ensure_ffmpeg():
     try:
@@ -20,8 +42,7 @@ def ensure_ffmpeg():
         print('Error: ffmpeg not found')
         
         if sys.platform == 'win32':
-            # TODO: download ffmpeg automatically
-            print('Download ffmpeg from https://ffmpeg.org/download.html')
+            download_ffmpeg()
         elif sys.platform == 'linux':
             print('Run `sudo apt install ffmpeg`')
         elif sys.platform == 'darwin':
@@ -30,7 +51,7 @@ def ensure_ffmpeg():
             print('Install ffmpeg from https://ffmpeg.org/download.html')
 
 def file_name(file: str) -> str:
-    return file
+    return file.split('/')[-1]
     
 def escape(value: str) -> str:
     return value.replace(':', '\\:').replace('"', '\\"').replace('\\', '\\\\')
@@ -44,11 +65,11 @@ def process(filename: str, suffix:str, size:float, margin:float, position_x:str,
         return
 
     try:
-        creation_time = datetime.strptime(stream['tags']['creation_time'], "%Y-%m-%dT%H:%M:%S.%fZ")
+        creation_time = datetime.strptime(stream['tags']['creation_time'], "%Y-%m-%dT%H:%M:%S.%fZ").timestamp()
     except KeyError:
-        print(f'Warning: no creation time for {filename}')
-        creation_time = datetime.now()
-
+        print(f'Warning: no creation time for {filename}, using file creation time')
+        creation_time = os.path.getctime(filename)
+    
     width = stream['width']
     height = stream['height']
     scaled_size = size * min(width, height) / 300
@@ -81,7 +102,7 @@ def process(filename: str, suffix:str, size:float, margin:float, position_x:str,
     
     drawtext = {
         'alpha': opacity/100,
-        # TODO: Fix font path for Windows
+        # TODO: Fix font path for Windows (detect fontconfig)
         ('fontfile' if '.' in font else 'font'): font,
         'fontcolor': color,
         'fontsize': scaled_size,
@@ -89,7 +110,7 @@ def process(filename: str, suffix:str, size:float, margin:float, position_x:str,
         'borderw': scaled_size/16,
         'x': x,
         'y': y,
-        'text': fr'%{{pts:localtime:{int(creation_time.timestamp())}}}',
+        'text': fr'%{{pts:localtime:{int(creation_time)}}}',
     }
 
     return ['ffmpeg', '-y', '-hide_banner',
@@ -117,6 +138,10 @@ def handle_cli(input_files: list[str], verbose=True, **kwargs):
 def handle_gui():
     from guizero import App, PushButton, Box, TextBox, Text, Combo, CheckBox
     from tkinter.filedialog import askopenfilenames
+    from tkinter.ttk import Progressbar
+    from threading import Thread
+
+    ff: FfmpegProgress | None = None
 
     def isfloat(value: str) -> bool:
         try:
@@ -131,7 +156,38 @@ def handle_gui():
             return True
         except subprocess.CalledProcessError:
             return False
-
+        
+    def td_str(td: timedelta) -> str:
+        return f'{td.seconds//3600:02}:{td.seconds//60%60:02}:{td.seconds%60:02}'
+        
+    def start_work(videos: list[str]):
+        nonlocal ff
+        
+        for file in videos:
+            ff_start = datetime.now()
+            progress_text.value = file_name(file)
+            if cmd := process(file, suffix_textbox.value, float(size_textbox.value), float(margin_textbox.value), horizontal_textbox.value, vertical_textbox.value, font_textbox.value, color_textbox.bg, border_textbox.bg, float(opacity_textbox.value), bool(cuda_checkbox.value), int(quality_textbox.value)):
+                try:
+                    ff = FfmpegProgress(cmd)
+                    for progress in ff.run_command_with_progress():
+                        time = datetime.now() - ff_start
+                        eta = time * (0 if progress == 0 else (100 - progress) / progress)
+                        progress_info.value = f"[{progress:.2f}%] {td_str(time)} (ETA {td_str(eta)})"
+                        progress_bar['value'] = progress
+                except RuntimeError:
+                    if ff:
+                        app.error("Error", f"Failed to process {file_name(file)}")
+                    break
+                except ValueError: break
+                finally:
+                    ff = None
+        else:
+            app.info("Info", "Operation completed")
+        
+        cancel_button.disable()
+        start_button.enable()
+        progress_box.hide()
+        
     def start():
         if not suffix_textbox.value:
             app.error("Error", "Suffix is empty")
@@ -159,28 +215,30 @@ def handle_gui():
         elif app.yesno("Confirmation", f"Process {len(videos)} file{"" if len(videos)==1 else "s"}?\n{"\n".join(map(file_name, videos))}"):
             cancel_button.enable()
             start_button.disable()
+            progress_box.show()
+            progress_bar['value'] = 0
             app.show()
 
-            for file in videos:
-                if cmd := process(file, suffix_textbox.value, float(size_textbox.value), float(margin_textbox.value), horizontal_textbox.value, vertical_textbox.value, font_textbox.value, color_textbox.bg, border_textbox.bg, float(opacity_textbox.value), bool(cuda_checkbox.value), int(quality_textbox.value)):
-                    ff = FfmpegProgress(cmd)
-                    try:
-                        for progress in ff.run_command_with_progress():
-                            # TODO: show progress
-                            print(progress)
-                    except RuntimeError:
-                        app.error("Error", f"Failed to process {file_name(file)}")
-                        break
+            nonlocal ff
+            if ff:
+                app.error("Error", "Operation already in progress")
+                return
             
-            cancel_button.disable()
-            start_button.enable()
-            app.info("Info", "Operation completed")
+            Thread(target=start_work, args=(videos,)).start()
         else:
             app.info("Info", "Operation cancelled")
 
     def cancel():
+        nonlocal ff
+        if ff:
+            ff_copy = ff
+            ff = None
+            ff_copy.quit_gracefully()
+            app.info("Info", "Operation cancelled")
+
         cancel_button.disable()
         start_button.enable()
+        progress_box.hide()
 
     def select_color():
         value = app.select_color(color_textbox.bg)
@@ -234,59 +292,79 @@ def handle_gui():
 
     def cuda_check():
         if cuda_checkbox.value:
-            cuda_checkbox.value = app.yesno("Warning", "Make sure you have NVIDIA GPU and CUDA installed. Continue?")
+            cuda_checkbox.value = app.yesno("Continue?", "Make sure you have NVIDIA GPU with NVENC support")
+
+    def download_button():
+        download_ffmpeg()
+        app.info("Info", "FFmpeg downloaded")
+
+    def when_closed():
+        if ff:
+            ff.quit()
+        app.destroy()
 
     app = App(title="stamper")
+    app.when_closed = when_closed
 
     settings_box = Box(app, width="fill", layout="grid")
 
-    Text(settings_box, text="File suffix", size=14, grid=[0, 0], align="left")
+    Text(settings_box, text="File suffix", grid=[0, 0], align="left")
     suffix_textbox = TextBox(settings_box, text="_ts", grid=[1, 0], command=update_example, align="left")
     suffix_example = Text(settings_box, grid=[2, 0], align="left")
 
-    Text(settings_box, text="Font family", size=14, grid=[0, 1], align="left")
-    font_textbox = TextBox(settings_box, text="Arial", grid=[1, 1], command=update_font, align="left")
-    PushButton(settings_box, text="Select", grid=[2, 1], command=select_font, align="left")
+    Text(settings_box, text="Font family", grid=[0, 1], align="left")
+    font_textbox = TextBox(settings_box, width=39, text='C:/Windows/Fonts/arial.ttf' if sys.platform == 'win32' else "Arial", grid=[1, 1, 3, 1], command=update_font, align="left")
+    PushButton(settings_box, text="Select", grid=[3, 1], command=select_font, align="left", pady=0)
 
-    Text(settings_box, text="Text color", size=14, grid=[0, 2], align="left")
+    Text(settings_box, text="Text color", grid=[0, 2], align="left")
     color_textbox = TextBox(settings_box, grid=[1, 2], align="left")
     block_input(color_textbox)
     color_textbox.when_clicked = select_color
     color_textbox.bg = "#FFFFFF"
 
-    Text(settings_box, text="Border color", size=14, grid=[0, 3], align="left")
+    Text(settings_box, text="Border color", grid=[0, 3], align="left")
     border_textbox = TextBox(settings_box, grid=[1, 3], align="left")
     block_input(border_textbox)
     border_textbox.when_clicked = select_border
     border_textbox.bg = "#000000"
 
-    Text(settings_box, text="Text size", size=14, grid=[0, 4], align="left")
+    Text(settings_box, text="Text size", grid=[0, 4], align="left")
     size_textbox = TextBox(settings_box, text="20", grid=[1, 4], align="left")
     validate_float(24, size_textbox, 0, 100)
 
-    Text(settings_box, text="Overlay opacity", size=14, grid=[0, 5], align="left")
+    Text(settings_box, text="Overlay opacity", grid=[0, 5], align="left")
     opacity_textbox = TextBox(settings_box, text="100", grid=[1, 5], align="left")
     validate_float(100, opacity_textbox, 0, 100)
 
-    Text(settings_box, text="Overlay margin", size=14, grid=[0, 6], align="left")
+    Text(settings_box, text="Overlay margin", grid=[0, 6], align="left")
     margin_textbox = TextBox(settings_box, text="10", grid=[1, 6], align="left")
     validate_float(10, margin_textbox, 0)
 
-    Text(settings_box, text="Horizontal position", size=14, grid=[0, 7], align="left")
+    Text(settings_box, text="Horizontal position", grid=[0, 7], align="left")
     horizontal_textbox = Combo(settings_box, options=['left', 'center', 'right'], grid=[1, 7], align="left", width="fill")
 
-    Text(settings_box, text="Vertical position", size=14, grid=[0, 8], align="left")
+    Text(settings_box, text="Vertical position", grid=[0, 8], align="left")
     vertical_textbox = Combo(settings_box, selected='bottom', options=['top', 'center', 'bottom'], grid=[1, 8], align="left", width="fill")
 
-    Text(settings_box, text="Quality", size=14, grid=[0, 9], align="left")
+    Text(settings_box, text="Quality", grid=[0, 9], align="left")
     quality_textbox = TextBox(settings_box, text="72", grid=[1, 9], align="left")
     validate_float(12, quality_textbox, 0, 100)
 
     cuda_checkbox = CheckBox(settings_box, text="Use NVIDIA GPU acceleration", grid=[0, 10, 3, 1], align="left", width="fill", command=cuda_check)
 
+    PushButton(settings_box, text="Download ffmpeg", grid=[0, 11], align="left", command=download_button)
+
+    # TODO: add load/save settings buttons
+
     buttons_box = Box(app, width="fill", align="bottom")
     cancel_button = PushButton(buttons_box, text="Cancel", align="right", enabled=False, command=cancel)
     start_button = PushButton(buttons_box, text="Start", align="right", command=start)
+
+    progress_box = Box(buttons_box, width="fill", align="bottom", visible=False)
+    progress_text = Text(progress_box, text="Progress")
+    progress_info = Text(progress_box, text="Progress", size=10)
+    progress_bar = Progressbar(progress_box.tk)
+    progress_box.add_tk_widget(progress_bar, width="fill")
 
     update_font()
     update_example()
@@ -299,7 +377,7 @@ def main():
     parser.add_argument('input_files', help='Input video files', nargs='*')
     parser.add_argument('-v', '--verbose', help='Verbose output', action='store_true')
     parser.add_argument('-e', '--suffix', help='Output file suffix', default='_ts')
-    parser.add_argument('-f', '--font', help='Font family', default='Arial')
+    parser.add_argument('-f', '--font', help='Font family', default='C:/Windows/Fonts/arial.ttf' if sys.platform == 'win32' else 'Arial')
     parser.add_argument('-c', '--color', help='Text color', default='white')
     parser.add_argument('-b', '--border', help='Border color', default='black')
     parser.add_argument('-s', '--size', help='Text size', default=20, type=float)

@@ -1,4 +1,10 @@
+certifi==2024.2.2
+charset-normalizer==3.3.2
+colorama==0.4.6
 ffmpeg-progress-yield==0.7.8
 future==1.0.0
 guizero==1.5.0
+idna==3.7
+requests==2.32.2
 tqdm==4.66.4
+urllib3==2.2.1
