@@ -1,4 +1,4 @@
-# tspro
+# stamper
 
 Add timestamp overlay to video
 
