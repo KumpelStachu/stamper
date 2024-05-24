@@ -45,7 +45,7 @@ def file_name(file: str) -> str:
 def escape(value: str) -> str:
     return value.replace(':', '\\:').replace('"', '\\"').replace('\\', '\\\\')
 
-def process(filename: str, suffix:str, size:float, margin:float, position_x:str, position_y:str, font:str, color:str, border:str, opacity:float, cuda=False, quality=14) -> list[str] | None:
+def process(filename: str, suffix:str, size:float, margin:float, position_x:str, position_y:str, font:str, color:str, border:str, opacity:float, gpu=False, quality=14) -> list[str] | None:
     try:
         info = probe(filename)
         stream = next(filter(lambda s: s['codec_type'] == 'video', info['streams']))
@@ -76,23 +76,23 @@ def process(filename: str, suffix:str, size:float, margin:float, position_x:str,
         y = f'H-text_h-{y}'
 
     codec = stream['codec_name']
-    qp = min((101 - quality) // (2 if cuda else 1.7), 51)
+    qp = min((101 - quality) // (2 if gpu else 1.7), 51)
     output = re.sub(r'\.(\w+)$', fr'{suffix}.\1', filename)
 
     input_flags = [
         '-hwaccel', 'cuda', 
         # '-hwaccel_output_format', 'cuda', 
         '-c:v', f'{codec}_cuvid',
-        ] if cuda else []
+        ] if gpu else []
     
     output_flags = [
         '-c:v', f'{codec}_nvenc',
-        ] if cuda else []
+        ] if gpu else []
     
     drawtext = {
         'alpha': opacity/100,
         # TODO: Fix font path for Windows (detect fontconfig)
-        ('fontfile' if '.' in font else 'font'): font,
+        ('fontfile' if '.' in font else 'font'): font.replace('\\', '/'),
         'fontcolor': color,
         'fontsize': scaled_size,
         'bordercolor': border,
