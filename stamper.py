@@ -19,42 +19,25 @@ def probe(filename: str) -> dict:
     cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', filename]
     return json.loads(subprocess.check_output(cmd, **sp_flags).decode())
 
-def download_ffmpeg():
-    if sys.platform == 'win32':
-        from tempfile import mkdtemp
-        import requests
-        import zipfile
-        import shutil
-        import io
-
-        url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
-        response = requests.get(url)
-        with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-            print('Extracting ffmpeg')
-            temp = mkdtemp()
-            bin = 'ffmpeg-master-latest-win64-gpl/bin'
-            z.extractall(temp, [f'{bin}/ffmpeg.exe', f'{bin}/ffprobe.exe'])
-            shutil.move(f'{temp}/{bin}/ffmpeg.exe', 'ffmpeg.exe')
-            shutil.move(f'{temp}/{bin}/ffprobe.exe', 'ffprobe.exe')
-            shutil.rmtree(temp)
-    else:
-        print('Error: unsupported platform')
-
 def ensure_ffmpeg():
     try:
         subprocess.run(['ffmpeg', '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **sp_flags)
         subprocess.run(['ffprobe', '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **sp_flags)
+
+        return True
     except FileNotFoundError:
         print('Error: ffmpeg not found')
         
         if sys.platform == 'win32':
-            download_ffmpeg()
+            print('Download ffmpeg from https://ffmpeg.org/download.html')
         elif sys.platform == 'linux':
             print('Run `sudo apt install ffmpeg`')
         elif sys.platform == 'darwin':
             print('Run `brew install ffmpeg`')
         else:
             print('Install ffmpeg from https://ffmpeg.org/download.html')
+
+        return False
 
 def file_name(file: str) -> str:
     return file.split('/')[-1]
@@ -127,6 +110,9 @@ def process(filename: str, suffix:str, size:float, margin:float, position_x:str,
             *output_flags, output]
 
 def handle_cli(input_files: list[str], verbose=True, **kwargs):
+    if not ensure_ffmpeg():
+        exit(1)
+
     if not verbose:
         from tqdm import tqdm
 
@@ -148,6 +134,27 @@ def handle_gui():
     from threading import Thread
 
     ff: FfmpegProgress | None = None
+
+    def download_ffmpeg():
+        if sys.platform == 'win32':
+            from tempfile import mkdtemp
+            import requests
+            import zipfile
+            import shutil
+            import io
+
+            url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
+            response = requests.get(url)
+            with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+                print('Extracting ffmpeg')
+                temp = mkdtemp()
+                bin = 'ffmpeg-master-latest-win64-gpl/bin'
+                z.extractall(temp, [f'{bin}/ffmpeg.exe', f'{bin}/ffprobe.exe'])
+                shutil.move(f'{temp}/{bin}/ffmpeg.exe', 'ffmpeg.exe')
+                shutil.move(f'{temp}/{bin}/ffprobe.exe', 'ffprobe.exe')
+                shutil.rmtree(temp)
+        else:
+            print('Error: unsupported platform')
 
     def isfloat(value: str) -> bool:
         try:
@@ -388,13 +395,18 @@ def handle_gui():
     progress_bar = Progressbar(progress_box.tk)
     progress_box.add_tk_widget(progress_bar, width="fill")
 
+    if not ensure_ffmpeg():
+        if app.yesno("Error", "FFmpeg not found, download now?"):
+            download_ffmpeg()
+            app.info("Info", "FFmpeg downloaded")
+        else:
+            app.destroy()
+
     update_font()
     update_example()
     app.display()
 
 def main():
-    ensure_ffmpeg()
-
     parser = argparse.ArgumentParser(prog='stamper', description='Add timestamp overlay to video')
     parser.add_argument('input_files', help='Input video files', nargs='*')
     parser.add_argument('-v', '--verbose', help='Verbose output', action='store_true')
