@@ -8,6 +8,7 @@ import re
 import os
 
 prefix_re = r'[a-zA-Z0-9_-]'
+nl = '\n'
 
 def probe(filename: str) -> dict:
     cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', filename]
@@ -208,11 +209,11 @@ def handle_gui():
             to.append(file)
         
         if errors:
-            app.warn("Warning", f"Invalid files:\n{"\n".join(map(file_name, videos))}")
+            app.warn("Warning", f"Invalid files:\n{nl.join(map(file_name, videos))}")
 
         if not videos:
             app.warn("Warning", "No valid files selected")
-        elif app.yesno("Confirmation", f"Process {len(videos)} file{"" if len(videos)==1 else "s"}?\n{"\n".join(map(file_name, videos))}"):
+        elif app.yesno("Confirmation", f"Process {len(videos)} file{'' if len(videos)==1 else 's'}?\n{nl.join(map(file_name, videos))}"):
             cancel_button.enable()
             start_button.disable()
             progress_box.show()
