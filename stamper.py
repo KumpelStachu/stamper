@@ -10,7 +10,7 @@ import os
 
 si = subprocess.STARTUPINFO()
 si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-sp_flags: dict[str, Any] = {'startupinfo':si}
+sp_flags: dict[str, Any] = {'startupinfo': si}
 
 prefix_re = r'[a-zA-Z0-9_-]'
 nl = '\n'
